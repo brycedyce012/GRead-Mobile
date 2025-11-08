@@ -12,7 +12,7 @@ struct LandingView: View {
                     Spacer()
                         .frame(height: 40)
 
-                    Image(systemName: "person.3.fill")
+                    Image(systemName: "books.vertical.fill")
                         .font(.system(size: 80))
                         .foregroundColor(.blue)
 
@@ -43,48 +43,23 @@ struct LandingView: View {
                         }
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.gray.opacity(0.1))
-                        .foregroundColor(.black)
+                        .background(Color.purple)
+                        .foregroundColor(.white)
                         .cornerRadius(10)
                     }
 
-                    // Login/Register Button
+                    // Sign In / Register Button
                     NavigationLink(destination: LoginRegisterView()) {
                         HStack {
                             Image(systemName: "person.fill")
                                 .font(.system(size: 16, weight: .semibold))
-                            Text("Sign In / Sign Up")
+                            Text("Sign In / Register")
                                 .fontWeight(.semibold)
                         }
                         .frame(maxWidth: .infinity)
                         .padding()
                         .background(Color.blue)
                         .foregroundColor(.white)
-                        .cornerRadius(10)
-                    }
-
-                    // Divider
-                    HStack {
-                        Divider()
-                        Text("or")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                        Divider()
-                    }
-                    .padding(.vertical, 8)
-
-                    // Direct Register Button
-                    NavigationLink(destination: LoginRegisterView()) {
-                        HStack {
-                            Image(systemName: "person.badge.plus.fill")
-                                .font(.system(size: 16, weight: .semibold))
-                            Text("Create New Account")
-                                .fontWeight(.semibold)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.green.opacity(0.1))
-                        .foregroundColor(.green)
                         .cornerRadius(10)
                     }
                 }
