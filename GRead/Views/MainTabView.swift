@@ -31,6 +31,12 @@ struct MainTabView: View {
                         Label("Messages", systemImage: "message.fill")
                     }
 
+                LibraryView()
+                    .environmentObject(authManager)
+                    .tabItem {
+                        Label("Library", systemImage: "books.vertical.fill")
+                    }
+
                 NotificationsView()
                     .tabItem {
                         Label("Notifications", systemImage: "bell.fill")

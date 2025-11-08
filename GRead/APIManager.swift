@@ -128,25 +128,25 @@ class APIManager {
         guard let url = URL(string: customBaseURL + endpoint) else {
             throw APIError.invalidURL
         }
-        
+
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
+
         if authenticated, let token = AuthManager.shared.jwtToken {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        
+
         if let body = body {
             request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         }
-        
+
         let (data, response) = try await URLSession.shared.data(for: request)
-        
+
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
         }
-        
+
         print("=== Custom API Response ===")
         print("URL: \(url)")
         print("Status: \(httpResponse.statusCode)")
@@ -154,14 +154,25 @@ class APIManager {
             print("Response: \(responseString)")
         }
         print("=========================")
-        
+
         guard (200...299).contains(httpResponse.statusCode) else {
             throw APIError.httpError(httpResponse.statusCode)
         }
-        
+
+        // Check for empty response
+        if let responseString = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) {
+            if responseString == "false" || responseString == "[]" || responseString.isEmpty {
+                // For array types, return empty array
+                if T.self is [Any].Type {
+                    return [] as! T
+                }
+                throw APIError.emptyResponse
+            }
+        }
+
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
-        
+
         return try decoder.decode(T.self, from: data)
     }
     
