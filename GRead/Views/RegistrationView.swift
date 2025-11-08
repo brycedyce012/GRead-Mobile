@@ -142,18 +142,20 @@ struct RegistrationView: View {
                 }
                 .padding(.horizontal, 24)
 
-                // Error Message
+                // Message (Error or Success)
                 if let error = errorMessage {
+                    let isSuccessMessage = error.lowercased().contains("account created") || error.lowercased().contains("check your email")
+
                     HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(.red)
+                        Image(systemName: isSuccessMessage ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .foregroundColor(isSuccessMessage ? .green : .red)
                         Text(error)
                             .font(.caption)
-                            .foregroundColor(.red)
+                            .foregroundColor(isSuccessMessage ? .green : .red)
                     }
                     .padding()
                     .frame(maxWidth: .infinity)
-                    .background(Color.red.opacity(0.1))
+                    .background(isSuccessMessage ? Color.green.opacity(0.1) : Color.red.opacity(0.1))
                     .cornerRadius(10)
                     .padding(.horizontal, 24)
                 }

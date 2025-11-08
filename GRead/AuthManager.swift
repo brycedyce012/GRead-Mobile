@@ -76,19 +76,25 @@ class AuthManager: ObservableObject {
     }
     
     func register(username: String, email: String, password: String) async throws {
-        // BuddyPress registration endpoint
-        let url = URL(string: "https://gread.fun/wp-json/buddypress/v1/members")!
+        // BuddyPress signup endpoint
+        let url = URL(string: "https://gread.fun/wp-json/buddypress/v1/signup")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let body: [String: String] = [
+        let body: [String: Any] = [
             "user_login": username,
-            "email": email,
-            "password": password
+            "user_email": email,
+            "password": password,
+            "signup_field_data": [
+                [
+                    "field_id": 1,
+                    "value": username
+                ]
+            ]
         ]
 
-        request.httpBody = try JSONEncoder().encode(body)
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -117,8 +123,18 @@ class AuthManager: ObservableObject {
                 throw AuthError.registrationFailed("Registration failed. Please try again.")
             }
 
-            // After successful registration, auto-login
-            try await login(username: username, password: password)
+            // After successful registration, try to auto-login
+            // If account needs activation, this will throw an error which we'll catch
+            do {
+                try await login(username: username, password: password)
+            } catch let error as AuthError {
+                // Check if the error is about account not being activated
+                if case .unauthorized = error {
+                    // Account created but needs email activation
+                    throw AuthError.registrationFailed("Account created! Please check your email to activate your account before logging in.")
+                }
+                throw error
+            }
         } catch let error as AuthError {
             throw error
         } catch {
