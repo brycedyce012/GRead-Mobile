@@ -15,12 +15,15 @@ struct Activity: Codable, Identifiable {
     let userLogin: String?
     let displayName: String?
     let userFullname: String?
+    let parent: Int?
+    var children: [Activity]?
 
     enum CodingKeys: String, CodingKey {
         case id, component, type, action, content
         case userId, primaryLink, itemId, secondaryItemId
         case dateRecorded, hideSitewide, isSpam
         case userNicename, userLogin, displayName, userFullname
+        case parent, children
     }
     
     // Custom decoder to handle potential data issues
@@ -69,7 +72,11 @@ struct Activity: Codable, Identifiable {
         userLogin = try? container.decode(String.self, forKey: .userLogin)
         displayName = try? container.decode(String.self, forKey: .displayName)
         userFullname = try? container.decode(String.self, forKey: .userFullname)
-        
+
+        // Parent and children for threading
+        parent = try? container.decode(Int.self, forKey: .parent)
+        children = try? container.decode([Activity].self, forKey: .children)
+
         // Debug logging
         if displayName == nil && userLogin == nil {
             print("⚠️ Warning: Activity \(id) has no display name or user login")

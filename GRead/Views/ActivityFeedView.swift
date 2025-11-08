@@ -3,6 +3,7 @@ import SwiftUI
 struct ActivityFeedView: View {
     @EnvironmentObject var authManager: AuthManager
     @State private var activities: [Activity] = []
+    @State private var organizedActivities: [Activity] = []
     @State private var isLoading = false
     @State private var showingNewPost = false
     @State private var errorMessage: String?
@@ -16,9 +17,9 @@ struct ActivityFeedView: View {
     var body: some View {
         NavigationView {
             ZStack {
-                if isLoading && activities.isEmpty {
+                if isLoading && organizedActivities.isEmpty {
                     ProgressView("Loading activities...")
-                } else if activities.isEmpty {
+                } else if organizedActivities.isEmpty {
                     VStack(spacing: 16) {
                         Image(systemName: "flame.fill")
                             .font(.system(size: 60))
@@ -32,8 +33,9 @@ struct ActivityFeedView: View {
                     }
                 } else {
                     List {
-                        ForEach(activities) { activity in
-                            ActivityRowView(
+                        // Only show top-level activities (those without a parent)
+                        ForEach(organizedActivities) { activity in
+                            ThreadedActivityView(
                                 activity: activity,
                                 onUserTap: { userId in
                                     selectedUserId = userId
@@ -41,19 +43,13 @@ struct ActivityFeedView: View {
                                 },
                                 onReport: {
                                     selectedActivity = activity
+                                },
+                                onDelete: { activityToDelete in
+                                    deleteActivity(activityToDelete)
                                 }
                             )
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                if activity.userId == AuthManager.shared.currentUser?.id {
-                                    Button(role: .destructive) {
-                                        deleteActivity(activity)
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
-                                }
-                            }
-                            
-                            if activity.id == activities.last?.id && hasMorePages && !isLoading {
+
+                            if activity.id == organizedActivities.last?.id && hasMorePages && !isLoading {
                                 ProgressView()
                                     .onAppear {
                                         Task {
@@ -130,7 +126,7 @@ struct ActivityFeedView: View {
                 Text("Why are you reporting this post?")
             }
             .task {
-                if activities.isEmpty {
+                if organizedActivities.isEmpty {
                     await loadActivities()
                 }
             }
@@ -151,9 +147,9 @@ struct ActivityFeedView: View {
         errorMessage = nil
 
         do {
-            // Request activity feed with user info
+            // Request activity feed with user info and comments
             let activityResponse: ActivityResponse = try await APIManager.shared.request(
-                endpoint: "/activity?per_page=20&page=\(page)&display_comments=false",
+                endpoint: "/activity?per_page=20&page=\(page)&display_comments=true",
                 authenticated: false
             )
             let response = activityResponse.activities
@@ -164,14 +160,38 @@ struct ActivityFeedView: View {
             print("Activities array count: \(response.count)")
 
             print("📦 Loaded \(response.count) activities")
+
+            // Debug: Check parent/child structure
+            let topLevel = response.filter { $0.parent == nil }
+            let comments = response.filter { $0.parent != nil }
+            print("🔍 Top-level posts: \(topLevel.count)")
+            print("🔍 Comments (with parent): \(comments.count)")
+
             if let first = response.first {
                 print("🔍 First activity sample:")
                 print("   ID: \(first.id)")
-                print("   userId: \(first.userId ?? -1)")
-                print("   displayName: \(first.displayName ?? "nil")")
-                print("   userLogin: \(first.userLogin ?? "nil")")
-                print("   userFullname: \(first.userFullname ?? "nil")")
-                print("   bestUserName: \(first.bestUserName)")
+                print("   parent: \(first.parent ?? -1)")
+                print("   children: \(first.children?.count ?? 0)")
+                print("   type: \(first.type ?? "nil")")
+                print("   component: \(first.component ?? "nil")")
+                print("   action: \(first.action ?? "nil")")
+                print("   All fields - userId: \(first.userId ?? -1), itemId: \(first.itemId ?? -1), secondaryItemId: \(first.secondaryItemId ?? -1)")
+            }
+
+            // Show some random examples to see pattern
+            if response.count > 5 {
+                print("🔍 Sample of activities 1-5:")
+                for i in 0..<min(5, response.count) {
+                    let act = response[i]
+                    print("   [\(i)] ID:\(act.id) parent:\(act.parent ?? -1) type:\(act.type ?? "?") action:\(act.action ?? "?") itemId:\(act.itemId ?? -1) secondaryItemId:\(act.secondaryItemId ?? -1)")
+                }
+            }
+
+            // Check for different activity types
+            let typeGroups = Dictionary(grouping: response, by: { $0.type ?? "nil" })
+            print("🔍 Activity types found:")
+            for (type, activities) in typeGroups.sorted(by: { $0.key < $1.key }) {
+                print("   \(type): \(activities.count)")
             }
             
             await MainActor.run {
@@ -180,6 +200,26 @@ struct ActivityFeedView: View {
                 } else {
                     activities.append(contentsOf: response)
                 }
+                // Organize flat list into hierarchy
+                organizedActivities = organizeActivitiesIntoThreads(activities)
+
+                print("📊 After organizing:")
+                print("   Total activities in response: \(activities.count)")
+                print("   Activity updates (posts): \(activities.filter { $0.type == "activity_update" }.count)")
+                print("   Activity comments: \(activities.filter { $0.type == "activity_comment" }.count)")
+                print("   Organized top-level posts: \(organizedActivities.count)")
+
+                // Check if any post has children
+                let postsWithChildren = organizedActivities.filter { $0.children != nil && !($0.children?.isEmpty ?? true) }
+                print("   Posts with comments: \(postsWithChildren.count)")
+
+                if let firstWithChildren = postsWithChildren.first {
+                    print("   ✅ Example: Post ID \(firstWithChildren.id) has \(firstWithChildren.children?.count ?? 0) comment(s)")
+                    if let firstComment = firstWithChildren.children?.first {
+                        print("      First comment ID: \(firstComment.id) by \(firstComment.bestUserName)")
+                    }
+                }
+
                 hasMorePages = response.count >= 20
                 isLoading = false
             }
@@ -187,6 +227,7 @@ struct ActivityFeedView: View {
             await MainActor.run {
                 if page == 1 {
                     activities = []
+                    organizedActivities = []
                 }
                 hasMorePages = false
                 isLoading = false
@@ -225,11 +266,11 @@ struct ActivityFeedView: View {
     
     private func reportActivity(_ activity: Activity, reason: String) {
         selectedActivity = nil
-        
+
         Task {
             do {
                 var userId: Int?
-                
+
                 if let uid = activity.userId {
                     userId = uid
                 } else if let itemId = activity.itemId {
@@ -237,30 +278,30 @@ struct ActivityFeedView: View {
                 } else if let secondaryItemId = activity.secondaryItemId {
                     userId = secondaryItemId
                 }
-                
+
                 guard let finalUserId = userId else {
                     await MainActor.run {
                         errorMessage = "Cannot report: User ID not found"
                     }
                     return
                 }
-                
+
                 let body: [String: Any] = [
                     "user_id": finalUserId,
                     "reason": reason
                 ]
-                
+
                 struct ReportResponse: Codable {
                     let success: Bool
                     let message: String?
                 }
-                
+
                 let response: ReportResponse = try await APIManager.shared.customRequest(
                     endpoint: "/user/report",
                     method: "POST",
                     body: body
                 )
-                
+
                 await MainActor.run {
                     if response.success {
                         errorMessage = "Report submitted successfully"
@@ -280,14 +321,146 @@ struct ActivityFeedView: View {
             }
         }
     }
+
+    private func organizeActivitiesIntoThreads(_ flatActivities: [Activity]) -> [Activity] {
+        // Create a dictionary for quick lookup and organize activities
+        var activityById: [Int: Activity] = [:]
+
+        // Initialize all activities with empty children
+        for activity in flatActivities {
+            var mutableActivity = activity
+            mutableActivity.children = []
+            activityById[activity.id] = mutableActivity
+        }
+
+        // Build parent-child relationships based on activity type
+        for activity in flatActivities {
+            // For activity_comment, the parent ID is in itemId or secondaryItemId
+            let parentId: Int?
+            if activity.type == "activity_comment" {
+                // Comments use itemId/secondaryItemId to reference parent
+                parentId = activity.itemId ?? activity.secondaryItemId
+            } else {
+                // Other types don't have comments in this feed
+                parentId = nil
+            }
+
+            if let parentId = parentId, parentId > 0, var parent = activityById[parentId] {
+                // Add this activity as a child of its parent
+                if var organizedChild = activityById[activity.id] {
+                    parent.children?.append(organizedChild)
+                    activityById[parentId] = parent
+                }
+            }
+        }
+
+        // Return only posts (activity_update) without filtering out other types
+        // But organize comments under their parent posts
+        return flatActivities.filter { $0.type == "activity_update" }.compactMap { activityById[$0.id] }
+    }
+}
+
+struct ThreadedActivityView: View {
+    let activity: Activity
+    let onUserTap: (Int) -> Void
+    let onReport: () -> Void
+    let onDelete: (Activity) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Main post
+            ActivityRowView(
+                activity: activity,
+                onUserTap: onUserTap,
+                onReport: onReport,
+                indentLevel: 0
+            )
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                if activity.userId == AuthManager.shared.currentUser?.id {
+                    Button(role: .destructive) {
+                        onDelete(activity)
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+            }
+
+            // Comments (children) with indentation
+            if let children = activity.children, !children.isEmpty {
+                ForEach(children) { child in
+                    CommentThreadView(
+                        comment: child,
+                        onUserTap: onUserTap,
+                        onReport: onReport,
+                        onDelete: onDelete,
+                        indentLevel: 1
+                    )
+                }
+            }
+        }
+    }
+}
+
+struct CommentThreadView: View {
+    let comment: Activity
+    let onUserTap: (Int) -> Void
+    let onReport: () -> Void
+    let onDelete: (Activity) -> Void
+    let indentLevel: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 0) {
+                // Indentation
+                VStack {
+                    if indentLevel > 0 {
+                        Divider()
+                            .frame(height: 60)
+                    }
+                }
+                .frame(width: CGFloat(indentLevel) * 16)
+
+                // Comment content
+                ActivityRowView(
+                    activity: comment,
+                    onUserTap: onUserTap,
+                    onReport: onReport,
+                    indentLevel: indentLevel
+                )
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    if comment.userId == AuthManager.shared.currentUser?.id {
+                        Button(role: .destructive) {
+                            onDelete(comment)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+
+            // Nested replies
+            if let children = comment.children, !children.isEmpty {
+                ForEach(children) { child in
+                    CommentThreadView(
+                        comment: child,
+                        onUserTap: onUserTap,
+                        onReport: onReport,
+                        onDelete: onDelete,
+                        indentLevel: indentLevel + 1
+                    )
+                }
+            }
+        }
+    }
 }
 
 struct ActivityRowView: View {
     let activity: Activity
     let onUserTap: (Int) -> Void
     let onReport: () -> Void
+    let indentLevel: Int
     @State private var showingComments = false
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
@@ -357,21 +530,24 @@ struct ActivityRowView: View {
                     .padding(.top, 4)
             }
             
-            HStack(spacing: 20) {
-                Button {
-                    showingComments = true
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "bubble.right")
-                        Text("Comment")
+            // Only show comment button for top-level posts
+            if indentLevel == 0 {
+                HStack(spacing: 20) {
+                    Button {
+                        showingComments = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "bubble.right")
+                            Text("Comment")
+                        }
+                        .font(.caption)
+                        .foregroundColor(.gray)
                     }
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                }
 
-                Spacer()
+                    Spacer()
+                }
+                .padding(.top, 4)
             }
-            .padding(.top, 4)
         }
         .padding(.vertical, 8)
         .sheet(isPresented: $showingComments) {
@@ -385,59 +561,77 @@ struct CommentView: View {
     let activity: Activity
     @State private var commentText = ""
     @State private var isPosting = false
-    
+
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        if let content = activity.content {
-                            Text(content.stripHTML())
-                                .padding()
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Comments")
+                    .font(.headline)
+                Spacer()
+                Button("Done") {
+                    dismiss()
+                }
+            }
+            .padding()
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    // Original post
+                    if let content = activity.content {
+                        Text(content.stripHTML())
+                            .font(.body)
+                            .fontWeight(.medium)
+                            .padding()
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(8)
+                    }
+
+                    Divider()
+
+                    // Display existing comments
+                    if let children = activity.children, !children.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            ForEach(children) { comment in
+                                CommentItemView(comment: comment)
+                            }
                         }
-                        
-                        Divider()
-                        
-                        Text("Comments")
-                            .font(.headline)
+                        .padding(.horizontal)
+                    } else {
+                        Text("No comments yet")
+                            .font(.caption)
+                            .foregroundColor(.gray)
                             .padding(.horizontal)
                     }
-                    .padding(.top)
-                }
-                
-                Divider()
-                
-                HStack(spacing: 12) {
-                    TextField("Add a comment...", text: $commentText, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .padding(8)
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(20)
-                        .lineLimit(1...5)
-                    
-                    Button {
-                        postComment()
-                    } label: {
-                        if isPosting {
-                            ProgressView()
-                        } else {
-                            Image(systemName: "paperplane.fill")
-                                .foregroundColor(commentText.isEmpty ? .gray : .blue)
-                        }
-                    }
-                    .disabled(commentText.isEmpty || isPosting)
                 }
                 .padding()
             }
-            .navigationTitle("Comments")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Done") {
-                        dismiss()
+
+            Divider()
+
+            HStack(spacing: 12) {
+                TextField("Add a comment...", text: $commentText, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .padding(8)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(20)
+                    .lineLimit(1...5)
+
+                Button {
+                    postComment()
+                } label: {
+                    if isPosting {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "paperplane.fill")
+                            .foregroundColor(commentText.isEmpty ? .gray : .blue)
                     }
                 }
+                .disabled(commentText.isEmpty || isPosting)
             }
+            .padding()
         }
     }
     
@@ -469,59 +663,114 @@ struct CommentView: View {
     }
 }
 
+struct CommentItemView: View {
+    let comment: Activity
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(Color.blue.opacity(0.15))
+                    .frame(width: 32, height: 32)
+                    .overlay {
+                        Image(systemName: "person.fill")
+                            .foregroundColor(.blue)
+                            .font(.system(size: 14))
+                    }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(comment.bestUserName)
+                        .font(.caption)
+                        .fontWeight(.semibold)
+
+                    if let date = comment.dateRecorded {
+                        Text(date.toRelativeTime())
+                            .font(.caption2)
+                            .foregroundColor(.gray)
+                    }
+                }
+
+                Spacer()
+            }
+
+            if let content = comment.content {
+                Text(content.stripHTML())
+                    .font(.caption)
+                    .lineLimit(nil)
+            }
+
+            // Recursively show nested replies if any
+            if let children = comment.children, !children.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Divider()
+                        .padding(.vertical, 4)
+
+                    ForEach(children) { child in
+                        CommentItemView(comment: child)
+                            .padding(.leading, 8)
+                    }
+                }
+            }
+        }
+        .padding(8)
+        .background(Color.gray.opacity(0.05))
+        .cornerRadius(6)
+    }
+}
+
 struct NewActivityView: View {
     @Environment(\.dismiss) var dismiss
     @State private var content = ""
     @State private var isPosting = false
     @State private var errorMessage: String?
     let onPost: () -> Void
-    
+
     var body: some View {
-        NavigationView {
-            VStack(alignment: .leading, spacing: 16) {
-                TextEditor(text: $content)
-                    .frame(minHeight: 150)
-                    .padding(8)
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                    )
-                
-                if let error = errorMessage {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundColor(.red)
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
+            HStack {
+                Button("Cancel") {
+                    dismiss()
                 }
-                
                 Spacer()
+                Text("New Post")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    postActivity()
+                } label: {
+                    if isPosting {
+                        ProgressView()
+                    } else {
+                        Text("Post")
+                            .fontWeight(.semibold)
+                    }
+                }
+                .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isPosting)
             }
             .padding()
-            .navigationTitle("New Post")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        postActivity()
-                    } label: {
-                        if isPosting {
-                            ProgressView()
-                        } else {
-                            Text("Post")
-                                .fontWeight(.semibold)
-                        }
-                    }
-                    .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isPosting)
-                }
+
+            Divider()
+
+            TextEditor(text: $content)
+                .frame(minHeight: 150)
+                .padding(8)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                )
+
+            if let error = errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundColor(.red)
             }
+
+            Spacer()
         }
+        .padding()
     }
     
     private func postActivity() {
