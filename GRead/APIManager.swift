@@ -298,7 +298,7 @@ class APIManager {
     /// Fetch activity feed with pagination
     func getActivityFeed(page: Int = 1, perPage: Int = 20) async throws -> ActivityFeedResponse {
         return try await customRequest(
-            endpoint: "/activity?per_page=\(perPage)&page=\(page)",
+            endpoint: "/activity?per_page=\(perPage)&page=\(page)&type=activity_update",
             authenticated: false
         )
     }

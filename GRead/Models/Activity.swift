@@ -18,17 +18,9 @@ struct Activity: Codable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case id, component, type, action, content
-        case userId = "user_id"
-        case primaryLink = "primary_link"
-        case itemId = "item_id"
-        case secondaryItemId = "secondary_item_id"
-        case dateRecorded = "date_recorded"
-        case hideSitewide = "hide_sitewide"
-        case isSpam = "is_spam"
-        case userNicename = "user_nicename"
-        case userLogin = "user_login"
-        case displayName = "display_name"
-        case userFullname = "user_fullname"
+        case userId, primaryLink, itemId, secondaryItemId
+        case dateRecorded, hideSitewide, isSpam
+        case userNicename, userLogin, displayName, userFullname
     }
     
     // Custom decoder to handle potential data issues

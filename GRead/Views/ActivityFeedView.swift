@@ -151,13 +151,17 @@ struct ActivityFeedView: View {
         errorMessage = nil
 
         do {
-            // Request with populate_extras to get user info
-            // Allow unauthenticated access to read activities
+            // Request activity feed with user info
             let activityResponse: ActivityResponse = try await APIManager.shared.request(
                 endpoint: "/activity?per_page=20&page=\(page)&display_comments=false",
                 authenticated: false
             )
             let response = activityResponse.activities
+
+            print("=== ACTIVITY RESPONSE DEBUG ===")
+            print("Total from response: \(activityResponse.total ?? -1)")
+            print("Has more items: \(activityResponse.hasMoreItems ?? false)")
+            print("Activities array count: \(response.count)")
 
             print("📦 Loaded \(response.count) activities")
             if let first = response.first {
