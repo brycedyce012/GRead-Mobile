@@ -44,10 +44,15 @@ struct ProfileView: View {
                         NavigationLink("Edit Profile") {
                             Text("Edit Profile")
                         }
-                        
+
                         NavigationLink("Privacy") {
                             Text("Privacy Settings")
                         }
+                    }
+
+                    Section(header: Text("Legal")) {
+                        Link("Privacy Policy", destination: URL(string: "https://gread.fun/privacy-policy")!)
+                        Link("Terms of Service", destination: URL(string: "https://gread.fun/tos")!)
                     }
                 }
                 
