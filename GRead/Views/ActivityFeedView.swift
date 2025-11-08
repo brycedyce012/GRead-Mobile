@@ -133,13 +133,14 @@ struct ActivityFeedView: View {
     private func loadActivities() async {
         isLoading = true
         errorMessage = nil
-        
+
         do {
             // Request with populate_extras to get user info
-            let response: [Activity] = try await APIManager.shared.request(
+            let activityResponse: ActivityResponse = try await APIManager.shared.request(
                 endpoint: "/activity?per_page=20&page=\(page)&display_comments=false"
             )
-            
+            let response = activityResponse.activities
+
             print("📦 Loaded \(response.count) activities")
             if let first = response.first {
                 print("🔍 First activity sample:")

@@ -11,12 +11,11 @@ struct Activity: Codable, Identifiable {
     let dateRecorded: String?
     let hideSitewide: Int?
     let isSpam: Int?
-    let userEmail: String?
     let userNicename: String?
     let userLogin: String?
     let displayName: String?
     let userFullname: String?
-    
+
     enum CodingKeys: String, CodingKey {
         case id, component, type, action, content
         case userId = "user_id"
@@ -26,7 +25,6 @@ struct Activity: Codable, Identifiable {
         case dateRecorded = "date_recorded"
         case hideSitewide = "hide_sitewide"
         case isSpam = "is_spam"
-        case userEmail = "user_email"
         case userNicename = "user_nicename"
         case userLogin = "user_login"
         case displayName = "display_name"
@@ -73,9 +71,8 @@ struct Activity: Codable, Identifiable {
         
         // Date as string (don't try to parse as Date object)
         dateRecorded = try? container.decode(String.self, forKey: .dateRecorded)
-        
-        // User info fields
-        userEmail = try? container.decode(String.self, forKey: .userEmail)
+
+        // User info fields (email excluded for privacy)
         userNicename = try? container.decode(String.self, forKey: .userNicename)
         userLogin = try? container.decode(String.self, forKey: .userLogin)
         displayName = try? container.decode(String.self, forKey: .displayName)
