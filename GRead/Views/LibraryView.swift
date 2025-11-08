@@ -335,7 +335,7 @@ struct ProgressEditorSheet: View {
                         Stepper("", value: Binding(
                             get: { Int(pageInput) ?? currentPage },
                             set: { pageInput = String($0) }
-                        ), in: currentPage...totalPages)
+                        ), in: 0...totalPages)
                     }
                 }
 
@@ -345,11 +345,11 @@ struct ProgressEditorSheet: View {
                             get: { Double(Int(pageInput) ?? currentPage) },
                             set: { pageInput = String(Int($0)) }
                         ),
-                        in: Double(currentPage)...Double(totalPages)
+                        in: 0...Double(totalPages)
                     )
 
                     HStack {
-                        Text("\(currentPage)p")
+                        Text("0p")
                             .font(.caption)
                             .foregroundColor(.gray)
                         Spacer()
@@ -363,7 +363,7 @@ struct ProgressEditorSheet: View {
 
                 Button(action: {
                     let page = Int(pageInput) ?? currentPage
-                    let finalPage = min(max(page, currentPage), totalPages)
+                    let finalPage = min(max(page, 0), totalPages)
                     onSave(finalPage)
                 }) {
                     Text("Save Progress")
