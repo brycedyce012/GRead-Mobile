@@ -5,92 +5,144 @@ struct ActivityFeedView: View {
     @State private var activities: [Activity] = []
     @State private var organizedActivities: [Activity] = []
     @State private var isLoading = false
-    @State private var showingNewPost = false
     @State private var errorMessage: String?
     @State private var page = 1
     @State private var hasMorePages = true
     @State private var selectedActivity: Activity?
-    @State private var showingUserProfile = false
-    @State private var selectedUserId: Int?
     @State private var showingLoginPrompt = false
+
+    // Sheet state - only one sheet can be open at a time
+    enum SheetType: Identifiable {
+        case newPost
+        case userProfile(userId: Int)
+        case moderation(userId: Int, userName: String)
+
+        var id: String {
+            switch self {
+            case .newPost: return "newPost"
+            case .userProfile: return "userProfile"
+            case .moderation: return "moderation"
+            }
+        }
+    }
+    @State private var activeSheet: SheetType?
     
     var body: some View {
-        NavigationView {
-            ZStack {
-                if isLoading && organizedActivities.isEmpty {
-                    ProgressView("Loading activities...")
-                } else if organizedActivities.isEmpty {
-                    VStack(spacing: 16) {
-                        Image(systemName: "flame.fill")
-                            .font(.system(size: 60))
-                            .foregroundColor(.gray.opacity(0.5))
-                        Text("No activity yet")
-                            .font(.title3)
-                            .foregroundColor(.gray)
-                        Text("Be the first to post something!")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                    }
-                } else {
-                    List {
-                        // Only show top-level activities (those without a parent)
-                        ForEach(organizedActivities) { activity in
-                            ThreadedActivityView(
-                                activity: activity,
-                                onUserTap: { userId in
-                                    selectedUserId = userId
-                                    showingUserProfile = true
-                                },
-                                onReport: {
-                                    selectedActivity = activity
-                                },
-                                onDelete: { activityToDelete in
-                                    deleteActivity(activityToDelete)
-                                }
-                            )
-
-                            if activity.id == organizedActivities.last?.id && hasMorePages && !isLoading {
-                                ProgressView()
-                                    .onAppear {
-                                        Task {
-                                            await loadMoreActivities()
-                                        }
+        ZStack {
+            NavigationView {
+                Group {
+                    if isLoading && organizedActivities.isEmpty {
+                        ProgressView("Loading activities...")
+                    } else if organizedActivities.isEmpty {
+                        VStack(spacing: 16) {
+                            Image(systemName: "flame.fill")
+                                .font(.system(size: 60))
+                                .foregroundColor(.gray.opacity(0.5))
+                            Text("No activity yet")
+                                .font(.title3)
+                                .foregroundColor(.gray)
+                            Text("Be the first to post something!")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                    } else {
+                        List {
+                            // Only show top-level activities (those without a parent)
+                            ForEach(organizedActivities) { activity in
+                                ThreadedActivityView(
+                                    activity: activity,
+                                    onUserTap: { userId in
+                                        activeSheet = .userProfile(userId: userId)
+                                    },
+                                    onReport: {
+                                        selectedActivity = activity
+                                    },
+                                    onDelete: { activityToDelete in
+                                        deleteActivity(activityToDelete)
                                     }
+                                )
+
+                                if activity.id == organizedActivities.last?.id && hasMorePages && !isLoading {
+                                    ProgressView()
+                                        .onAppear {
+                                            Task {
+                                                await loadMoreActivities()
+                                            }
+                                        }
+                                }
                             }
                         }
+                        .listStyle(.plain)
+                        .refreshable {
+                            page = 1
+                            hasMorePages = true
+                            await loadActivities()
+                        }
                     }
-                    .listStyle(.plain)
-                    .refreshable {
-                        page = 1
-                        hasMorePages = true
+                }
+                .navigationTitle("Activity")
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button {
+                            if authManager.isGuestMode {
+                                showingLoginPrompt = true
+                            } else {
+                                activeSheet = .newPost
+                            }
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.title3)
+                        }
+                    }
+                }
+                .alert("Sign In Required", isPresented: $showingLoginPrompt) {
+                    Button("Sign In") {
+                        // Navigate to login
+                    }
+                    Button("Cancel", role: .cancel) { }
+                } message: {
+                    Text("You need to sign in to create posts. Please sign in or create an account.")
+                }
+                .alert("Report Activity", isPresented: Binding(
+                    get: { selectedActivity != nil },
+                    set: { if !$0 { selectedActivity = nil } }
+                )) {
+                    if let activity = selectedActivity {
+                        Button("Spam", role: .destructive) {
+                            reportActivity(activity, reason: "spam")
+                        }
+                        Button("Inappropriate Content", role: .destructive) {
+                            reportActivity(activity, reason: "inappropriate")
+                        }
+                        Button("Harassment", role: .destructive) {
+                            reportActivity(activity, reason: "harassment")
+                        }
+                        Button("Cancel", role: .cancel) {
+                            selectedActivity = nil
+                        }
+                    }
+                } message: {
+                    Text("Why are you reporting this post?")
+                }
+                .task {
+                    if organizedActivities.isEmpty {
                         await loadActivities()
                     }
                 }
-            }
-            .navigationTitle("Activity")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        if authManager.isGuestMode {
-                            showingLoginPrompt = true
-                        } else {
-                            showingNewPost = true
-                        }
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.title3)
+                .alert("Error", isPresented: .constant(errorMessage != nil)) {
+                    Button("OK") {
+                        errorMessage = nil
+                    }
+                } message: {
+                    if let error = errorMessage {
+                        Text(error)
                     }
                 }
             }
-            .alert("Sign In Required", isPresented: $showingLoginPrompt) {
-                Button("Sign In") {
-                    // Navigate to login
-                }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("You need to sign in to create posts. Please sign in or create an account.")
-            }
-            .sheet(isPresented: $showingNewPost) {
+        }
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .newPost:
                 NewActivityView(onPost: {
                     Task {
                         page = 1
@@ -98,46 +150,15 @@ struct ActivityFeedView: View {
                         await loadActivities()
                     }
                 })
-            }
-            .sheet(isPresented: $showingUserProfile) {
-                if let userId = selectedUserId {
-                    UserProfileView(userId: userId)
-                }
-            }
-            .alert("Report Activity", isPresented: Binding(
-                get: { selectedActivity != nil },
-                set: { if !$0 { selectedActivity = nil } }
-            )) {
-                if let activity = selectedActivity {
-                    Button("Spam", role: .destructive) {
-                        reportActivity(activity, reason: "spam")
+            case .userProfile(let userId):
+                UserProfileView(
+                    userId: userId,
+                    onModerationTap: { userName in
+                        activeSheet = .moderation(userId: userId, userName: userName)
                     }
-                    Button("Inappropriate Content", role: .destructive) {
-                        reportActivity(activity, reason: "inappropriate")
-                    }
-                    Button("Harassment", role: .destructive) {
-                        reportActivity(activity, reason: "harassment")
-                    }
-                    Button("Cancel", role: .cancel) {
-                        selectedActivity = nil
-                    }
-                }
-            } message: {
-                Text("Why are you reporting this post?")
-            }
-            .task {
-                if organizedActivities.isEmpty {
-                    await loadActivities()
-                }
-            }
-            .alert("Error", isPresented: .constant(errorMessage != nil)) {
-                Button("OK") {
-                    errorMessage = nil
-                }
-            } message: {
-                if let error = errorMessage {
-                    Text(error)
-                }
+                )
+            case .moderation(let userId, let userName):
+                ModerationView(userId: userId, userName: userName)
             }
         }
     }
@@ -159,40 +180,8 @@ struct ActivityFeedView: View {
             print("Has more items: \(activityResponse.hasMoreItems ?? false)")
             print("Activities array count: \(response.count)")
 
+            // Activity feed loaded successfully
             print("📦 Loaded \(response.count) activities")
-
-            // Debug: Check parent/child structure
-            let topLevel = response.filter { $0.parent == nil }
-            let comments = response.filter { $0.parent != nil }
-            print("🔍 Top-level posts: \(topLevel.count)")
-            print("🔍 Comments (with parent): \(comments.count)")
-
-            if let first = response.first {
-                print("🔍 First activity sample:")
-                print("   ID: \(first.id)")
-                print("   parent: \(first.parent ?? -1)")
-                print("   children: \(first.children?.count ?? 0)")
-                print("   type: \(first.type ?? "nil")")
-                print("   component: \(first.component ?? "nil")")
-                print("   action: \(first.action ?? "nil")")
-                print("   All fields - userId: \(first.userId ?? -1), itemId: \(first.itemId ?? -1), secondaryItemId: \(first.secondaryItemId ?? -1)")
-            }
-
-            // Show some random examples to see pattern
-            if response.count > 5 {
-                print("🔍 Sample of activities 1-5:")
-                for i in 0..<min(5, response.count) {
-                    let act = response[i]
-                    print("   [\(i)] ID:\(act.id) parent:\(act.parent ?? -1) type:\(act.type ?? "?") action:\(act.action ?? "?") itemId:\(act.itemId ?? -1) secondaryItemId:\(act.secondaryItemId ?? -1)")
-                }
-            }
-
-            // Check for different activity types
-            let typeGroups = Dictionary(grouping: response, by: { $0.type ?? "nil" })
-            print("🔍 Activity types found:")
-            for (type, activities) in typeGroups.sorted(by: { $0.key < $1.key }) {
-                print("   \(type): \(activities.count)")
-            }
             
             await MainActor.run {
                 if page == 1 {
@@ -202,23 +191,6 @@ struct ActivityFeedView: View {
                 }
                 // Organize flat list into hierarchy
                 organizedActivities = organizeActivitiesIntoThreads(activities)
-
-                print("📊 After organizing:")
-                print("   Total activities in response: \(activities.count)")
-                print("   Activity updates (posts): \(activities.filter { $0.type == "activity_update" }.count)")
-                print("   Activity comments: \(activities.filter { $0.type == "activity_comment" }.count)")
-                print("   Organized top-level posts: \(organizedActivities.count)")
-
-                // Check if any post has children
-                let postsWithChildren = organizedActivities.filter { $0.children != nil && !($0.children?.isEmpty ?? true) }
-                print("   Posts with comments: \(postsWithChildren.count)")
-
-                if let firstWithChildren = postsWithChildren.first {
-                    print("   ✅ Example: Post ID \(firstWithChildren.id) has \(firstWithChildren.children?.count ?? 0) comment(s)")
-                    if let firstComment = firstWithChildren.children?.first {
-                        print("      First comment ID: \(firstComment.id) by \(firstComment.bestUserName)")
-                    }
-                }
 
                 hasMorePages = response.count >= 20
                 isLoading = false
@@ -347,7 +319,7 @@ struct ActivityFeedView: View {
 
             if let parentId = parentId, parentId > 0, var parent = activityById[parentId] {
                 // Add this activity as a child of its parent
-                if var organizedChild = activityById[activity.id] {
+                if let organizedChild = activityById[activity.id] {
                     parent.children?.append(organizedChild)
                     activityById[parentId] = parent
                 }
@@ -807,117 +779,118 @@ struct NewActivityView: View {
 
 struct UserProfileView: View {
     let userId: Int
+    let onModerationTap: (String) -> Void
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var authManager: AuthManager
     @State private var user: User?
     @State private var stats: UserStats?
     @State private var isLoading = true
-    @State private var showModerationView = false
 
     var body: some View {
-        NavigationView {
-            Group {
-                if isLoading {
-                    ProgressView()
-                } else if let user = user {
-                    ScrollView {
-                        VStack(spacing: 20) {
-                            VStack(spacing: 12) {
-                                AsyncImage(url: URL(string: user.avatarUrls?.full ?? "")) { image in
-                                    image
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
-                                } placeholder: {
-                                    Image(systemName: "person.circle.fill")
-                                        .resizable()
-                                        .foregroundColor(.gray)
-                                }
-                                .frame(width: 100, height: 100)
-                                .clipShape(Circle())
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Button("Done") {
+                    dismiss()
+                }
+                Spacer()
+                Text("Profile")
+                    .font(.headline)
+                Spacer()
+                Color.clear
+                    .frame(width: 50)
+            }
+            .padding()
 
-                                Text(user.name)
-                                    .font(.title2)
-                                    .fontWeight(.bold)
+            Divider()
 
-                                if let username = user.userLogin {
-                                    Text("@\(username)")
-                                        .foregroundColor(.gray)
-                                }
+            // Content
+            if isLoading {
+                ProgressView()
+            } else if let user = user {
+                ScrollView {
+                    VStack(spacing: 20) {
+                        VStack(spacing: 12) {
+                            AsyncImage(url: URL(string: user.avatarUrls?.full ?? "")) { image in
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                            } placeholder: {
+                                Image(systemName: "person.circle.fill")
+                                    .resizable()
+                                    .foregroundColor(.gray)
                             }
-                            .padding(.top, 20)
+                            .frame(width: 100, height: 100)
+                            .clipShape(Circle())
 
-                            // Stats Section
-                            if let stats = stats {
-                                Divider()
+                            Text(user.name)
+                                .font(.title2)
+                                .fontWeight(.bold)
 
-                                VStack(spacing: 12) {
-                                    Text("Statistics")
-                                        .font(.headline)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                                    HStack(spacing: 12) {
-                                        StatCard(
-                                            label: "Books Completed",
-                                            value: "\(stats.booksCompleted)",
-                                            icon: "checkmark.circle.fill",
-                                            color: .green
-                                        )
-                                        StatCard(
-                                            label: "Pages Read",
-                                            value: "\(stats.pagesRead)",
-                                            icon: "book.fill",
-                                            color: .blue
-                                        )
-                                    }
-                                }
-                                .padding(.vertical, 8)
+                            if let username = user.userLogin {
+                                Text("@\(username)")
+                                    .foregroundColor(.gray)
                             }
+                        }
+                        .padding(.top, 20)
 
+                        // Stats Section
+                        if let stats = stats {
                             Divider()
 
-                            // Moderation Actions
-                            if authManager.currentUser?.id != userId {
-                                Button(action: { showModerationView = true }) {
-                                    HStack {
-                                        Image(systemName: "exclamationmark.shield.fill")
-                                        Text("Moderation Options")
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .padding()
-                                    .background(Color.red.opacity(0.1))
-                                    .foregroundColor(.red)
-                                    .cornerRadius(8)
-                                }
-                                .padding(.vertical, 8)
-                            }
+                            VStack(spacing: 12) {
+                                Text("Statistics")
+                                    .font(.headline)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                            Spacer()
+                                HStack(spacing: 12) {
+                                    StatCard(
+                                        label: "Books Completed",
+                                        value: "\(stats.booksCompleted)",
+                                        icon: "checkmark.circle.fill",
+                                        color: .green
+                                    )
+                                    StatCard(
+                                        label: "Pages Read",
+                                        value: "\(stats.pagesRead)",
+                                        icon: "book.fill",
+                                        color: .blue
+                                    )
+                                }
+                            }
+                            .padding(.vertical, 8)
                         }
-                        .padding()
+
+                        Divider()
+
+                        // Moderation Actions
+                        if authManager.currentUser?.id != userId {
+                            Button(action: { onModerationTap(user.name) }) {
+                                HStack {
+                                    Image(systemName: "exclamationmark.shield.fill")
+                                    Text("Moderation Options")
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.red.opacity(0.1))
+                                .foregroundColor(.red)
+                                .cornerRadius(8)
+                            }
+                            .padding(.vertical, 8)
+                        }
+
+                        Spacer()
                     }
-                } else {
-                    Text("User not found")
-                        .foregroundColor(.gray)
+                    .padding()
                 }
+            } else {
+                Text("User not found")
+                    .foregroundColor(.gray)
             }
-            .navigationTitle("Profile")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-            }
-            .sheet(isPresented: $showModerationView) {
-                if let userName = user?.name {
-                    ModerationView(userId: userId, userName: userName)
-                }
-            }
-            .task {
-                await loadUser()
-                await loadStats()
-            }
+        }
+        .task {
+            await loadUser()
+            await loadStats()
         }
     }
 
