@@ -38,44 +38,15 @@ struct SplashScreenView: View {
                 VStack(spacing: 20) {
                     Spacer()
 
-                    // App Icon Circle
-                    ZStack {
-                        Circle()
-                            .fill(
-                                LinearGradient(
-                                    gradient: Gradient(colors: [
-                                        Color(red: 1, green: 0.4, blue: 0.4),
-                                        Color(red: 1, green: 0.6, blue: 0.4)
-                                    ]),
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .frame(width: 120, height: 120)
-                            .shadow(color: Color.black.opacity(0.3), radius: 15, x: 0, y: 8)
-
-                        // Book icon inside circle
-                        VStack(spacing: 8) {
-                            HStack(spacing: 3) {
-                                RoundedRectangle(cornerRadius: 2)
-                                    .fill(Color.white)
-                                    .frame(width: 12, height: 30)
-                                RoundedRectangle(cornerRadius: 2)
-                                    .fill(Color.white.opacity(0.7))
-                                    .frame(width: 12, height: 30)
-                            }
-                            HStack(spacing: 3) {
-                                RoundedRectangle(cornerRadius: 2)
-                                    .fill(Color.white)
-                                    .frame(width: 12, height: 30)
-                                RoundedRectangle(cornerRadius: 2)
-                                    .fill(Color.white.opacity(0.7))
-                                    .frame(width: 12, height: 30)
-                            }
-                        }
-                    }
-                    .scaleEffect(scale)
-                    .opacity(opacity)
+                    // App Icon
+                    Image("appstore1024")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 120, height: 120)
+                        .cornerRadius(30)
+                        .shadow(color: Color.black.opacity(0.3), radius: 15, x: 0, y: 8)
+                        .scaleEffect(scale)
+                        .opacity(opacity)
 
                     // App Name
                     Text("GRead")
@@ -105,10 +76,15 @@ struct SplashScreenView: View {
                         opacity = 1.0
                     }
 
-                    // Dismiss splash after 2.5 seconds
+                    // Dismiss splash after 2.5 seconds with fade out
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                        withAnimation(.easeInOut(duration: 0.5)) {
-                            isActive = true
+                        withAnimation(.easeOut(duration: 0.6)) {
+                            opacity = 0
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                isActive = true
+                            }
                         }
                     }
                 }

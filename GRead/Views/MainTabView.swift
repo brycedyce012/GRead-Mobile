@@ -21,16 +21,6 @@ struct MainTabView: View {
                         Label("Activity", systemImage: "flame.fill")
                     }
 
-                GroupsView()
-                    .tabItem {
-                        Label("Groups", systemImage: "person.3.fill")
-                    }
-
-                MessagesView()
-                    .tabItem {
-                        Label("Messages", systemImage: "message.fill")
-                    }
-
                 LibraryView()
                     .environmentObject(authManager)
                     .tabItem {

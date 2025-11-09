@@ -78,10 +78,6 @@ struct ProfileView: View {
                     }
 
                     Section(header: Text("Settings")) {
-                        NavigationLink(destination: Text("Edit Profile").navigationTitle("Edit Profile")) {
-                            Text("Edit Profile")
-                        }
-
                         NavigationLink(destination: BlockedUsersView()) {
                             HStack(spacing: 12) {
                                 Image(systemName: "hand.raised.fill")
@@ -89,9 +85,23 @@ struct ProfileView: View {
                                 Text("Blocked Users")
                             }
                         }
+                    }
 
-                        NavigationLink(destination: Text("Privacy Settings").navigationTitle("Privacy")) {
-                            Text("Privacy Settings")
+                    Section(header: Text("Support")) {
+                        Link(destination: URL(string: "mailto:admin@gread.fun?subject=Contact%20Request")!) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "envelope.fill")
+                                    .foregroundColor(.blue)
+                                Text("Contact Developers")
+                            }
+                        }
+
+                        Link(destination: URL(string: "mailto:admin@gread.fun?subject=Request%20Data%20Deletion")!) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "trash.fill")
+                                    .foregroundColor(.orange)
+                                Text("Request Data Deletion")
+                            }
                         }
                     }
 
