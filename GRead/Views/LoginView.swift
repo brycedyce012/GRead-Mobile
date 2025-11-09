@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import SwiftUI
+import AuthenticationServices
 struct LoginView: View {
     @EnvironmentObject var authManager: AuthManager
     @State private var username = ""
@@ -113,7 +114,32 @@ struct LoginView: View {
                     .disabled(isLoading || username.isEmpty || password.isEmpty)
                     .padding(.horizontal, 24)
                     .padding(.top, 8)
-                    
+
+                    // Divider
+                    HStack {
+                        Color.gray.frame(height: 1)
+                        Text("OR")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                        Color.gray.frame(height: 1)
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+
+                    // Sign in with Apple
+                    SignInWithAppleButton(
+                        onRequest: { request in
+                            request.requestedScopes = [.fullName, .email]
+                        },
+                        onCompletion: { result in
+                            handleSignInWithApple(result)
+                        }
+                    )
+                    .frame(height: 50)
+                    .cornerRadius(10)
+                    .padding(.horizontal, 24)
+                    .signInWithAppleButtonStyle(.black)
+
                     Spacer()
                 }
             }
@@ -125,10 +151,10 @@ struct LoginView: View {
     private func login() {
         isLoading = true
         errorMessage = nil
-        
+
         // Hide keyboard
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        
+
         Task {
             do {
                 try await authManager.login(username: username, password: password)
@@ -143,6 +169,73 @@ struct LoginView: View {
                     isLoading = false
                 }
             }
+        }
+    }
+
+    private func handleSignInWithApple(_ result: Result<ASAuthorization, Error>) {
+        isLoading = true
+        errorMessage = nil
+
+        switch result {
+        case .success(let authorization):
+            if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
+                let userIdentifier = appleIDCredential.user
+                let fullName = appleIDCredential.fullName
+                let email = appleIDCredential.email
+
+                // Create username from email or full name
+                var appleUsername = ""
+                if let email = email {
+                    appleUsername = email.split(separator: "@").first.map(String.init) ?? "user_\(userIdentifier)"
+                } else if let fullName = fullName {
+                    appleUsername = "\(fullName.givenName ?? "")\(fullName.familyName ?? "")".lowercased().filter { $0.isLetter }
+                    if appleUsername.isEmpty {
+                        appleUsername = "user_\(userIdentifier)"
+                    }
+                } else {
+                    appleUsername = "user_\(userIdentifier)"
+                }
+
+                // Use Apple user ID as password for security
+                let applePassword = userIdentifier
+
+                // Attempt to register first, if user exists they'll get an error and we'll attempt login
+                Task {
+                    do {
+                        let displayEmail = email ?? "\(appleUsername)@gread.local"
+                        try await authManager.register(
+                            username: appleUsername,
+                            email: displayEmail,
+                            password: applePassword
+                        )
+                    } catch let error as AuthError {
+                        // If registration fails (user likely exists), try login
+                        if case .registrationFailed = error {
+                            do {
+                                try await authManager.login(username: appleUsername, password: applePassword)
+                            } catch {
+                                await MainActor.run {
+                                    errorMessage = "Apple Sign In failed. Please try again."
+                                    isLoading = false
+                                }
+                            }
+                        } else {
+                            await MainActor.run {
+                                errorMessage = error.errorDescription
+                                isLoading = false
+                            }
+                        }
+                    } catch {
+                        await MainActor.run {
+                            errorMessage = "Apple Sign In failed. Please try again."
+                            isLoading = false
+                        }
+                    }
+                }
+            }
+        case .failure(let error):
+            errorMessage = "Apple Sign In failed: \(error.localizedDescription)"
+            isLoading = false
         }
     }
 }

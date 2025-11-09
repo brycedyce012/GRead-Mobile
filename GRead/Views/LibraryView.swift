@@ -627,17 +627,27 @@ struct ISBNImportSheet: View {
                         .font(.headline)
                         .padding(.top)
 
-                    HStack {
+                    VStack(spacing: 12) {
                         TextField("Enter ISBN...", text: $isbnInput)
                             .textFieldStyle(.roundedBorder)
                             .keyboardType(.default)
 
                         Button(action: searchByISBN) {
-                            if isSearching {
-                                ProgressView()
-                            } else {
-                                Image(systemName: "magnifyingglass")
+                            HStack {
+                                if isSearching {
+                                    ProgressView()
+                                        .tint(.white)
+                                } else {
+                                    Image(systemName: "barcode.viewfinder")
+                                }
+                                Text(isSearching ? "Searching..." : "Search ISBN")
                             }
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                            .font(.headline)
                         }
                         .disabled(isbnInput.isEmpty || isSearching)
                     }
@@ -675,7 +685,7 @@ struct ISBNImportSheet: View {
                             showConfirmation = true
                         }
                     }
-                } else if !isbnInput.isEmpty && !isSearching {
+                } else if !isbnInput.isEmpty && !isSearching && errorMessage == nil {
                     VStack(spacing: 16) {
                         Image(systemName: "books.vertical.fill")
                             .font(.system(size: 50))
@@ -724,20 +734,50 @@ struct ISBNImportSheet: View {
         isSearching = true
         errorMessage = nil
 
+        // Validate ISBN format (basic check)
+        let cleanISBN = isbnInput.trimmingCharacters(in: .whitespaces)
+        if cleanISBN.isEmpty {
+            errorMessage = "Please enter an ISBN"
+            isSearching = false
+            return
+        }
+
         Task {
             do {
-                let results: [Book] = try await APIManager.shared.customRequest(
-                    endpoint: "/books/search?query=\(isbnInput.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")",
-                    method: "GET",
-                    authenticated: true
-                )
-                await MainActor.run {
-                    searchResults = results
-                    isSearching = false
+                // Call the ISBN-specific endpoint that queries OpenLibrary via the WordPress plugin
+                // Try to get a single book first, then fallback to array if needed
+                do {
+                    let result: Book = try await APIManager.shared.customRequest(
+                        endpoint: "/books/isbn?isbn=\(cleanISBN.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")",
+                        method: "GET",
+                        authenticated: true
+                    )
+                    await MainActor.run {
+                        searchResults = [result]
+                        isSearching = false
+                    }
+                } catch {
+                    // Try as array response in case the endpoint returns [Book]
+                    let results: [Book] = try await APIManager.shared.customRequest(
+                        endpoint: "/books/isbn?isbn=\(cleanISBN.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")",
+                        method: "GET",
+                        authenticated: true
+                    )
+                    await MainActor.run {
+                        searchResults = results
+                        isSearching = false
+                    }
                 }
             } catch {
                 await MainActor.run {
-                    errorMessage = "Failed to search ISBN: \(error.localizedDescription)"
+                    // Provide helpful error messages
+                    let message: String
+                    if error.localizedDescription.contains("404") || error.localizedDescription.contains("not found") {
+                        message = "Book not found. Please check the ISBN and try again."
+                    } else {
+                        message = "Failed to search ISBN: \(error.localizedDescription)"
+                    }
+                    errorMessage = message
                     isSearching = false
                     searchResults = []
                 }
