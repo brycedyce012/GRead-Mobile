@@ -16,12 +16,14 @@ struct ActivityFeedView: View {
         case newPost
         case userProfile(userId: Int)
         case moderation(userId: Int, userName: String)
+        case comments(activity: Activity)
 
         var id: String {
             switch self {
             case .newPost: return "newPost"
             case .userProfile: return "userProfile"
             case .moderation: return "moderation"
+            case .comments: return "comments"
             }
         }
     }
@@ -31,6 +33,7 @@ struct ActivityFeedView: View {
         ZStack {
             NavigationView {
                 Group {
+                    // Content
                     if isLoading && organizedActivities.isEmpty {
                         ProgressView("Loading activities...")
                     } else if organizedActivities.isEmpty {
@@ -53,6 +56,9 @@ struct ActivityFeedView: View {
                                     activity: activity,
                                     onUserTap: { userId in
                                         activeSheet = .userProfile(userId: userId)
+                                    },
+                                    onCommentsTap: {
+                                        activeSheet = .comments(activity: activity)
                                     },
                                     onReport: {
                                         selectedActivity = activity
@@ -139,6 +145,7 @@ struct ActivityFeedView: View {
                     }
                 }
             }
+            .id(1)  // Stable ID to prevent NavigationView from rebuilding when sheet state changes
         }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
@@ -159,6 +166,17 @@ struct ActivityFeedView: View {
                 )
             case .moderation(let userId, let userName):
                 ModerationView(userId: userId, userName: userName)
+            case .comments(let activity):
+                CommentView(
+                    activity: activity,
+                    onPost: {
+                        Task {
+                            page = 1
+                            hasMorePages = true
+                            await loadActivities()
+                        }
+                    }
+                )
             }
         }
     }
@@ -335,6 +353,7 @@ struct ActivityFeedView: View {
 struct ThreadedActivityView: View {
     let activity: Activity
     let onUserTap: (Int) -> Void
+    let onCommentsTap: () -> Void
     let onReport: () -> Void
     let onDelete: (Activity) -> Void
 
@@ -344,6 +363,7 @@ struct ThreadedActivityView: View {
             ActivityRowView(
                 activity: activity,
                 onUserTap: onUserTap,
+                onCommentsTap: onCommentsTap,
                 onReport: onReport,
                 indentLevel: 0
             )
@@ -363,6 +383,7 @@ struct ThreadedActivityView: View {
                     CommentThreadView(
                         comment: child,
                         onUserTap: onUserTap,
+                        onCommentsTap: onCommentsTap,
                         onReport: onReport,
                         onDelete: onDelete,
                         indentLevel: 1
@@ -376,6 +397,7 @@ struct ThreadedActivityView: View {
 struct CommentThreadView: View {
     let comment: Activity
     let onUserTap: (Int) -> Void
+    let onCommentsTap: () -> Void
     let onReport: () -> Void
     let onDelete: (Activity) -> Void
     let indentLevel: Int
@@ -396,6 +418,7 @@ struct CommentThreadView: View {
                 ActivityRowView(
                     activity: comment,
                     onUserTap: onUserTap,
+                    onCommentsTap: onCommentsTap,
                     onReport: onReport,
                     indentLevel: indentLevel
                 )
@@ -416,6 +439,7 @@ struct CommentThreadView: View {
                     CommentThreadView(
                         comment: child,
                         onUserTap: onUserTap,
+                        onCommentsTap: onCommentsTap,
                         onReport: onReport,
                         onDelete: onDelete,
                         indentLevel: indentLevel + 1
@@ -429,9 +453,9 @@ struct CommentThreadView: View {
 struct ActivityRowView: View {
     let activity: Activity
     let onUserTap: (Int) -> Void
+    let onCommentsTap: () -> Void
     let onReport: () -> Void
     let indentLevel: Int
-    @State private var showingComments = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -506,7 +530,7 @@ struct ActivityRowView: View {
             if indentLevel == 0 {
                 HStack(spacing: 20) {
                     Button {
-                        showingComments = true
+                        onCommentsTap()
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "bubble.right")
@@ -522,15 +546,13 @@ struct ActivityRowView: View {
             }
         }
         .padding(.vertical, 8)
-        .sheet(isPresented: $showingComments) {
-            CommentView(activity: activity)
-        }
     }
 }
 
 struct CommentView: View {
     @Environment(\.dismiss) var dismiss
     let activity: Activity
+    let onPost: () -> Void
     @State private var commentText = ""
     @State private var isPosting = false
 
@@ -615,16 +637,17 @@ struct CommentView: View {
                     "content": commentText,
                     "parent": activity.id
                 ]
-                
+
                 let _: Activity = try await APIManager.shared.request(
                     endpoint: "/activity",
                     method: "POST",
                     body: body
                 )
-                
+
                 await MainActor.run {
                     commentText = ""
                     isPosting = false
+                    onPost()
                 }
             } catch {
                 await MainActor.run {
